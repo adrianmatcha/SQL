@@ -1,0 +1,227 @@
+-- Joining Tables for 2023 and 2024 flights
+-- Could not figure out AWS Glue Crawler, so proceeded to create a union with code
+CREATE TABLE joined_flight_data AS
+SELECT 
+    month,
+    day_of_month,
+    day_of_week,
+    fl_date,
+    mkt_unique_carrier,
+    branded_code_share,
+    mkt_carrier_airline_id,
+    mkt_carrier_fl_num,
+    op_unique_carrier,
+    tail_num,
+    dest_airport_id,
+    dest_airport_seq_id,
+    dest_city_market_id,
+    crs_dep_time,
+    dep_time,
+    dep_delay,
+    dep_delay_new,
+    crs_arr_time,
+    arr_time,
+    arr_delay,
+    cancelled,
+    cancellation_code,
+    diverted,
+    crs_elapsed_time,
+    actual_elapsed_time,
+    air_time,
+    distance,
+    carrier_delay,
+    weather_delay,
+    nas_delay,
+    security_delay,
+    late_aircraft_delay,
+    year
+FROM "2023flights"
+UNION ALL
+SELECT 
+    month,
+    day_of_month,
+    day_of_week,
+    fl_date,
+    mkt_unique_carrier,
+    branded_code_share,
+    mkt_carrier_airline_id,
+    mkt_carrier_fl_num,
+    op_unique_carrier,
+    tail_num,
+    dest_airport_id,
+    dest_airport_seq_id,
+    dest_city_market_id,
+    crs_dep_time,
+    dep_time,
+    dep_delay,
+    dep_delay_new,
+    crs_arr_time,
+    arr_time,
+    arr_delay,
+    cancelled,
+    cancellation_code,
+    diverted,
+    crs_elapsed_time,
+    actual_elapsed_time,
+    air_time,
+    distance,
+    carrier_delay,
+    weather_delay,
+    nas_delay,
+    security_delay,
+    late_aircraft_delay,
+    year
+FROM "2024flights";
+-- Q1 - Total flights per year
+SELECT 
+    year,
+    month,
+    mkt_unique_carrier AS airline_name,
+    COUNT(*) AS total_flights
+FROM 
+    joined_flight_data
+GROUP BY 
+    year, month, mkt_unique_carrier
+ORDER BY 
+    year, month, total_flights DESC;
+
+-- Q2.1 - Time of year to minimize delays
+SELECT 
+    year,
+    month,
+    AVG(CAST(dep_delay AS DOUBLE)) AS avg_departure_delay,
+    AVG(CAST(arr_delay AS DOUBLE)) AS avg_arrival_delay
+FROM 
+    joined_flight_data
+WHERE 
+    dep_delay IS NOT NULL 
+    AND arr_delay IS NOT NULL -- Check for non-null values
+    AND dep_delay != '' 
+    AND arr_delay != '' -- Exclude empty strings
+GROUP BY 
+    year, month
+ORDER BY 
+    year ASC , month ASC;
+
+-- Q2.2 Day of the Week to minimalize the delays
+SELECT 
+    day_of_week,
+    AVG(CAST(dep_delay AS DOUBLE)) AS avg_departure_delay,
+    AVG(CAST(arr_delay AS DOUBLE)) AS avg_arrival_delay
+FROM 
+    joined_flight_data
+WHERE 
+    dep_delay IS NOT NULL 
+    AND arr_delay IS NOT NULL 
+    AND dep_delay != '' 
+    AND arr_delay != ''
+GROUP BY 
+    day_of_week
+ORDER BY 
+    avg_departure_delay ASC, 
+    avg_arrival_delay ASC;
+
+-- Q3.1 Top 10 most delayed flights
+SELECT 
+    tail_num,
+    delayed_flights,
+    total_flights,
+    delayed_flights * 1.0 / total_flights AS time_lag
+FROM (
+    SELECT 
+        tail_num,
+        COUNT(*) AS total_flights,
+        SUM(
+            CASE 
+                WHEN dep_delay IS NOT NULL AND dep_delay != '' AND CAST(dep_delay AS DOUBLE) > 0 THEN 1 
+                ELSE 0 
+            END
+        ) AS delayed_flights
+    FROM 
+        joined_flight_data
+    WHERE 
+        tail_num IS NOT NULL
+    GROUP BY 
+        tail_num
+    HAVING 
+        COUNT(*) >= 1000 -- Apply the cutoff for total flights
+) AS delay_ranking
+ORDER BY 
+    time_lag DESC
+LIMIT 10;
+
+-- Q3.2 Top 10 least delayed flights
+SELECT 
+    tail_num,
+    delayed_flights,
+    total_flights,
+    delayed_flights * 1.0 / total_flights AS time_lag
+FROM (
+    SELECT 
+        tail_num,
+        COUNT(*) AS total_flights,
+        SUM(
+            CASE 
+                WHEN dep_delay IS NOT NULL AND dep_delay != '' AND CAST(dep_delay AS DOUBLE) > 0 THEN 1 
+                ELSE 0 
+            END
+        ) AS delayed_flights
+    FROM 
+        joined_flight_data
+    WHERE 
+        tail_num IS NOT NULL AND tail_num != '' -- Exclude null or empty tail numbers
+    GROUP BY 
+        tail_num
+    HAVING 
+        COUNT(*) >= 1000 -- Apply the cutoff for total flights
+) AS delay_ranking
+ORDER BY 
+    time_lag ASC
+LIMIT 10;
+-- Q4.1 Most Frequent destination flights 2023
+
+SELECT 
+    origin,
+    origin_city_name,
+    dest_airport_id,
+    COUNT(*) AS total_flights
+FROM "2023flights"
+GROUP BY year,origin,origin_city_name,dest_airport_id
+ORDER BY year, total_flights desc
+LIMIT 10;
+-- Q4.2 Most Frequent destination flights 2024
+SELECT 
+    origin_airport_id,
+    dest_airport_id,
+    COUNT(*) AS total_flights
+FROM "2024flights"
+GROUP BY year,origin_airport_id,dest_airport_id
+ORDER BY year, total_flights desc
+LIMIT 10;
+-- Q5.1 Finding the percentage of departureand arrival flights delayed by weather per airport in 2023 for the Top 10
+SELECT 
+    origin,
+    origin_city_name,
+    dest_airport_id,
+    COUNT(*) AS total_flights,
+    ROUND(SUM(CASE WHEN CAST(IF(weather_delay = '' OR weather_delay IS NULL, NULL, weather_delay) AS DOUBLE) > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS delay_percentage
+FROM 
+    "2023flights"
+GROUP BY 
+    origin,origin_city_name,dest_airport_id
+ORDER BY 
+    delay_percentage DESC
+LIMIT 10;
+-- Q5.2 Finding the percentage of departure and arrival flights delayed by weather per airport in 2024 for Top 10
+SELECT 
+    origin_airport_id,
+    dest_airport_id,
+    COUNT(*) AS total_flights,
+    ROUND(SUM(CASE WHEN CAST(IF(weather_delay = '' OR weather_delay IS NULL, NULL, weather_delay) AS DOUBLE) > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS delay_percentage
+FROM 
+    "2024flights"
+GROUP BY 
+    origin_airport_id,dest_airport_id
+ORDER BY 
+    delay_percentage DESC
+    LIMIT 10;
